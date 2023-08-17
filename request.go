@@ -6,6 +6,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+    "sync"
 
 	"golang.org/x/net/context"
 )
@@ -199,17 +200,24 @@ func (s *Server) handleConnect(ctx context.Context, conn conn, req *Request) err
 
 	// Start proxying
 	errCh := make(chan error, 2)
-	go proxy(target, req.bufConn, errCh)
-	go proxy(conn, target, errCh)
+    var wg sync.WaitGroup
+    wg.Add(2)
+
+	go proxy(target, req.bufConn, errCh, wg)
+	go proxy(conn, target, errCh, wg)
+
+    wg.Wait()
+    close(errCh)
 
 	// Wait
-	for i := 0; i < 2; i++ {
-		e := <-errCh
-		if e != nil {
+    for err := range errCh {
+		if err != nil {
+            fmt.Println("e");
 			// return from this function closes target (and conn).
-			return e
+			return err
 		}
 	}
+
 	return nil
 }
 
@@ -355,7 +363,7 @@ type closeWriter interface {
 
 // proxy is used to suffle data from src to destination, and sends errors
 // down a dedicated channel
-func proxy(dst io.Writer, src io.Reader, errCh chan error) {
+func proxy(dst io.Writer, src io.Reader, errCh chan error, wg sync.WaitGroup) {
 	_, err := io.Copy(dst, src)
 	if tcpConn, ok := dst.(closeWriter); ok {
 		tcpConn.CloseWrite()

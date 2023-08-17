@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+    "sync"
 	"golang.org/x/net/context"
 	"io"
 	"net"
@@ -47,20 +48,26 @@ func (s *Server) handleSocks4(conn net.Conn) error {
 	if err != nil {
 		return err
 	}
-	var errCh = make(chan error, 2)
-	go func() {
-		_, err := io.Copy(dstConn, conn)
-		errCh <- err
-	}()
-	go func() {
-		_, err := io.Copy(conn, dstConn)
-		errCh <- err
-	}()
-	err = <-errCh
-	if err != nil {
-		return err
+
+    errCh := make(chan error, 2)
+    var wg sync.WaitGroup
+    wg.Add(2)
+
+    go proxy(dstConn, conn, errCh, wg)
+	go proxy(conn, dstConn, errCh, wg)
+
+    wg.Wait()
+    close(errCh)
+
+	// Wait
+    for err := range errCh {
+		if err != nil {
+            fmt.Println("e");
+			// return from this function closes target (and conn).
+			return err
+		}
 	}
-	return <-errCh
+	return nil
 }
 
 func readAsString(r io.Reader) (string, error) {
