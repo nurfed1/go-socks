@@ -1,4 +1,4 @@
-module github.com/nwtgck/go-socks
+module github.com/nurfed1/go-socks
 
 go 1.16
 
